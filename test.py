@@ -21,50 +21,65 @@ def display_image(image, title="Image"):
     plt.title(title)
     plt.axis('off')
     display(plt.gcf())
-    plt.pause(0.1)
+    plt.pause(1)
 
 
 def stitch_images(stitcher, images):
     if len(images) < 2:
-        return
-    #status, stitched_image = stitcher.stitch(images)
-    stitched_image = stitcher.stitch(images)
+        return None
+    try:
+        stitched_image = stitcher.stitch(images)
+        return stitched_image
+    except Exception as e:
+        print(e)
+        return None
 
-    #if status == cv2.Stitcher_OK:
-    #    display_image(stitched_image, title="Stitching Progress")
-    #else:
-    #    print("Stitching failed with status code:", status)
 
-    display_image(stitched_image, title="Stitching Progress")
+def resize_image(img, scale_factor=0.3):
+    new_width = int(img.shape[1] * scale_factor)
+    new_height = int(img.shape[0] * scale_factor)
+    new_size = (new_width, new_height)
+    result = cv2.resize(img, new_size, interpolation=cv2.INTER_AREA)
+    return result
 
 
 def image_stiching_test(stitcher, path_to_test_images):
     image_files = get_image_filenames(path_to_test_images)
     images = []
+    final_result = None
 
     # Real-time stitching process
     for image_file in image_files:
-        image = cv2.imread(image_file)
         print(image_file)
+        image_raw = cv2.imread(image_file)
+        image = resize_image(image_raw)
         if image is None:
             print(f"Failed to load image: {image_file}")
             continue
-        #display_image(image, title="Current Image")
+        display_image(image, title="Current Image")
         # Add the new image to the list of images to stitch
         images.append(image)
-        stitch_images(stitcher, images)
+        stitched_image = stitch_images(stitcher, images)
+        if stitched_image is not None:
+            final_result = stitched_image.copy()
+            display_image(stitched_image, title="Stitching Progress")
+            #images = [stitched_image]
         # Simulate delay
-        time.sleep(1)
+        time.sleep(0.2)
     print("Stitching complete.")
+    return final_result
 
 
 def main():
     # Initialize the OpenCV stitcher
     #stitcher = cv2.Stitcher_create(cv2.Stitcher_SCANS)
-    stitcher = Stitcher(confidence_threshold=0.1)
+    stitcher = Stitcher(confidence_threshold=0.05)
     # Testing
     path_to_test_images = "../Test_images"
-    image_stiching_test(stitcher, path_to_test_images)
+    stitched_image = image_stiching_test(stitcher, path_to_test_images)
+    if stitched_image is not None:
+        display_image(stitched_image, title="Final Result")
+        time.sleep(5)
 
 
 
