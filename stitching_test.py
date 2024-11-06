@@ -73,9 +73,9 @@ def image_stiching_test(stitcher, path_to_test_images):
 def main():
     # Initialize the OpenCV stitcher
     #stitcher = cv2.Stitcher_create(cv2.Stitcher_SCANS)
-    stitcher = Stitcher(confidence_threshold=0.05)
+    stitcher = Stitcher(confidence_threshold=0.1)
     # Testing
-    path_to_test_images = "../Test_images"
+    path_to_test_images = "../Test_images/1"
     stitched_image = image_stiching_test(stitcher, path_to_test_images)
     if stitched_image is not None:
         display_image(stitched_image, title="Final Result")
