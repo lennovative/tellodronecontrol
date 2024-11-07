@@ -26,33 +26,61 @@ def start_thread_video_stream(drone, exit_event):
     return thread
 
 
-def start_thread_image_processing(drone, image_processing_event, exit_event):
+def display_image(image, title="Image"):
+    clear_output(wait=True)
+    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    plt.title(title)
+    plt.axis('off')
+    display(plt.gcf())
+    plt.pause(1)
+
+
+def stitch_images(stitcher, images):
+    if len(images) < 2:
+        return None
+    try:
+        stitched_image = stitcher.stitch(images)
+        return stitched_image
+    except Exception as e:
+        print(e)
+        return None
+
+
+def start_thread_image_processing(drone, image_stitcher, image_processing_event, exit_event):
     def image_processing():
+        images = []
         try:
             capture = drone.get_frame_read()
             while image_processing_event.is_set() and not exit_event.is_set():
                 frame = capture.frame
                 if frame is None:
                     continue
-                # TODO: do processing and stitching
-                cv2.imshow("stitching progress", frame)
-                cv2.waitKey(100)
+                images.append(frame)
+                stitched_image = stitch_images(image_stitcher, images)
+                if stitched_image is not None:
+                    display_image(stitched_image, title="Stitching Progress")
+                time.sleep(0.25)
         except Exception as e:
             print(f"Error in image processing thread: {e}")
 
         finally:
-            cv2.destroyAllWindows()
-            # TODO: stitch recorded images together
+            final_stitched_image = stitch_images(image_stitcher, images)
+            display_image(final_stitched_image, title="Final Result")
+            time.sleep(4)
 
     thread = threading.Thread(target=image_processing)
     thread.start()
     return thread
+
 
 def main():
     # Initialize the Tello drone
     drone = Tello()
     drone.connect()
     print(f"Battery level: {drone.get_battery()}%")
+
+    # Initialize image stitching tool
+    image_stitcher = Stitcher(confidence_threshold=0.1)
 
     # Set events
     exit_event = threading.Event()
@@ -97,7 +125,7 @@ def main():
             elif key == ord(' '):
                 if not image_processing_event.is_set():
                     image_processing_event.set()
-                    new_thread_image_processing = start_thread_image_processing(drone, image_processing_event, exit_event)
+                    new_thread_image_processing = start_thread_image_processing(drone, image_stitcher, image_processing_event, exit_event)
                     thread_image_processing_list.append(new_thread_image_processing)
                 else:
                     image_processing_event.clear()
