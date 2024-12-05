@@ -46,16 +46,19 @@ def load_and_stitch(image_paths, output_dir):
         os.makedirs(output_dir)
     images = []
     for i, image_path in enumerate(image_paths):
-        print(f"Working on {image_path}")
+        print(f"{image_path}")
         image = cv2.imread(image_path)
         if image is None:
             print(f"Failed to load image: {image_file}")
             continue
         images.append(image)
+        if len(images) < 2:
+            continue
         stitched_image = stitch_images(images)
         if stitched_image is not None:
-            cv2.imwrite(os.path.join(output_dir, f"stitching_output_{i}.png"), stitched_image)
-            print(f"Saved: {output_dir}")
+            output_path = os.path.join(output_dir, f"stitching_output_{i}.png")
+            cv2.imwrite(output_path, stitched_image)
+            print(f"Saved: {output_path}")
 
 def main():
     # Init stitcher
@@ -64,7 +67,9 @@ def main():
     all_image_paths = get_image_filenames(input_dir)
     image_paths_grouped = group_image_paths(all_image_paths)
     output_dir = "./output_images/stitching"
+    print("Start\n")
     for key, value in image_paths_grouped.items():
+        print(f"Working on: {key}")
         load_and_stitch(value, os.path.join(output_dir, key))
     print("done")
 

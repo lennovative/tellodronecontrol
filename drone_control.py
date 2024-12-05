@@ -16,25 +16,6 @@ screen = pygame.display.set_mode((960, 720))
 pygame.display.set_caption('Tello Drone')
 
 
-#def display_video_frame(drone, exit_event):
-#    while not exit_event.is_set():
-#        # Capture frame from the drone
-#        frame = drone.get_frame_read().frame
-
-        # Convert frame a format compatible with pygame (RGB)
-#        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-#        frame_surface = pygame.surfarray.make_surface(frame_rgb)
-#        frame_surface = pygame.transform.rotate(frame_surface, -90)  # Rotate for correct orientation
-#        frame_surface = pygame.transform.flip(frame_surface, True, False)  # Flip horizontally if needed
-
-        # Display frame in Pygame window
-#        screen.blit(frame_surface, (0, 0))
-#        pygame.display.update()
-
-        # Reduce CPU usage
-#        time.sleep(0.03)
-
-
 def display_video_frame(drone, frame_queue, exit_event):
     """Threaded function to capture the video frame from the Tello drone."""
     while not exit_event.is_set():
@@ -65,59 +46,6 @@ def stitch_images(stitcher, images):
         return None
 
 
-def start_thread_image_processing_old(drone, image_stitcher, image_processing_event, exit_event):
-    def image_processing():
-        images = []
-        try:
-            capture = drone.get_frame_read()
-            while image_processing_event.is_set() and not exit_event.is_set():
-                frame = capture.frame
-                if frame is None:
-                    continue
-                images.append(frame)
-                stitched_image = stitch_images(image_stitcher, images)
-                if stitched_image is not None:
-                    display_image(stitched_image, title="Stitching Progress")
-                time.sleep(0.25)
-        except Exception as e:
-            print(f"Error in image processing thread: {e}")
-
-        finally:
-            final_stitched_image = stitch_images(image_stitcher, images)
-            display_image(final_stitched_image, title="Final Result")
-            time.sleep(4)
-
-    thread = threading.Thread(target=image_processing)
-    thread.start()
-    return thread
-
-
-def start_thread_image_processing(drone, output_directory, recording_id, image_processing_event, exit_event, delay=0.5):
-    def recording():
-        try:
-            capture = drone.get_frame_read()
-            while image_processing_event.is_set() and not exit_event.is_set():
-                frame = capture.frame
-                if frame is None:
-                    print("frame is none")
-                    continue
-
-                # Save frame to the output directory
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                image_path = os.path.join(output_directory, f"r{recording_id}_img_{timestamp}.png")
-                cv2.imwrite(image_path, frame)
-                print(f"Saved: {image_path}")
-
-                time.sleep(delay)
-
-        except Exception as e:
-            print(f"Error in image processing thread (Recording {recording_id}): {e}")
-
-    thread = threading.Thread(target=recording)
-    thread.start()
-    return thread
-
-
 def do_takeoff(drone):
     print("Takeoff")
     try:
@@ -145,12 +73,10 @@ def main():
     print(f"Battery level: {drone.get_battery()}%")
 
     # Initialize image stitching tool
-    #image_stitcher = Stitcher(confidence_threshold=0.1)
     image_output_dir = "./output_images"
 
     # Set events
     exit_event = threading.Event()
-    #image_processing_event = threading.Event()
     recording_event = threading.Event()
 
     # Start stream
@@ -237,9 +163,6 @@ def main():
                         if not recording_event.is_set():
                             print(f"Start recording {recording_id}")
                             recording_event.set()
-                            #new_thread_image_processing = start_thread_image_processing(
-                            #    drone, image_output_dir, recording_id, image_processing_event, exit_event)
-                            #thread_image_processing_list.append(new_thread_image_processing)
                         else:
                             print(f"End recording {recording_id}")
                             recording_event.clear()
@@ -289,6 +212,7 @@ def main():
 
             # Break the loop if exit event is set
             if exit_event.is_set():
+                recording_event.clear()
                 break
 
             # Cap the loop rate
