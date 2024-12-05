@@ -1,6 +1,7 @@
 import cv2
 import threading
 import time
+import os
 import pygame
 import matplotlib.pyplot as plt
 from djitellopy import Tello
@@ -15,23 +16,23 @@ screen = pygame.display.set_mode((960, 720))
 pygame.display.set_caption('Tello Drone')
 
 
-def display_video_frame(drone, exit_event):
-    while not exit_event.is_set():
-        # Capture frame from the drone
-        frame = drone.get_frame_read().frame
+#def display_video_frame(drone, exit_event):
+#    while not exit_event.is_set():
+#        # Capture frame from the drone
+#        frame = drone.get_frame_read().frame
 
         # Convert frame a format compatible with pygame (RGB)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_surface = pygame.surfarray.make_surface(frame_rgb)
-        frame_surface = pygame.transform.rotate(frame_surface, -90)  # Rotate for correct orientation
-        frame_surface = pygame.transform.flip(frame_surface, True, False)  # Flip horizontally if needed
+#        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+#        frame_surface = pygame.surfarray.make_surface(frame_rgb)
+#        frame_surface = pygame.transform.rotate(frame_surface, -90)  # Rotate for correct orientation
+#        frame_surface = pygame.transform.flip(frame_surface, True, False)  # Flip horizontally if needed
 
         # Display frame in Pygame window
-        screen.blit(frame_surface, (0, 0))
-        pygame.display.update()
+#        screen.blit(frame_surface, (0, 0))
+#        pygame.display.update()
 
         # Reduce CPU usage
-        time.sleep(0.03)
+#        time.sleep(0.03)
 
 
 def display_video_frame(drone, frame_queue, exit_event):
@@ -64,7 +65,7 @@ def stitch_images(stitcher, images):
         return None
 
 
-def start_thread_image_processing(drone, image_stitcher, image_processing_event, exit_event):
+def start_thread_image_processing_old(drone, image_stitcher, image_processing_event, exit_event):
     def image_processing():
         images = []
         try:
@@ -87,6 +88,32 @@ def start_thread_image_processing(drone, image_stitcher, image_processing_event,
             time.sleep(4)
 
     thread = threading.Thread(target=image_processing)
+    thread.start()
+    return thread
+
+
+def start_thread_image_processing(drone, output_directory, recording_id, image_processing_event, exit_event, delay=0.5):
+    def recording():
+        try:
+            capture = drone.get_frame_read()
+            while image_processing_event.is_set() and not exit_event.is_set():
+                frame = capture.frame
+                if frame is None:
+                    print("frame is none")
+                    continue
+
+                # Save frame to the output directory
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                image_path = os.path.join(output_directory, f"r{recording_id}_img_{timestamp}.png")
+                cv2.imwrite(image_path, frame)
+                print(f"Saved: {image_path}")
+
+                time.sleep(delay)
+
+        except Exception as e:
+            print(f"Error in image processing thread (Recording {recording_id}): {e}")
+
+    thread = threading.Thread(target=recording)
     thread.start()
     return thread
 
@@ -118,11 +145,13 @@ def main():
     print(f"Battery level: {drone.get_battery()}%")
 
     # Initialize image stitching tool
-    image_stitcher = Stitcher(confidence_threshold=0.1)
+    #image_stitcher = Stitcher(confidence_threshold=0.1)
+    image_output_dir = "./output_images"
 
     # Set events
     exit_event = threading.Event()
-    image_processing_event = threading.Event()
+    #image_processing_event = threading.Event()
+    recording_event = threading.Event()
 
     # Start stream
     drone.streamon()
@@ -137,10 +166,9 @@ def main():
     # Init processing thread list
     thread_image_processing_list = []
 
-    # Start drone control
-    print("Tello Drone Control")
-    print("Use W, A, S, D for movement; R/F to move up/down; Q/E to rotate; T to takeoff; L to land; ESC to quit.")
-    # Initialize movement variables
+    # Init movement variables
+    movement_speed = 30
+    rotation_speed = 30
     forward = 0
     left = 0
     up = 0
@@ -148,6 +176,14 @@ def main():
     last_command = (0, 0, 0, 0)
     rc_control_active = False
     clock = pygame.time.Clock()
+
+    # Init recording variables
+    recording_id = 0
+    last_saved_time = 0
+
+    # Start drone control
+    print("Tello Drone Control")
+    print("Use W, A, S, D for movement; R/F to move up/down; Q/E to rotate; T to takeoff; L to land; ESC to quit.")
     print("All systems online.")
     try:
         # Main control loop
@@ -164,28 +200,28 @@ def main():
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_w:
                         print("Moving forward")
-                        forward = 30
+                        forward = 1
                     elif event.key == pygame.K_s:
                         print("Moving back")
-                        forward = -30
+                        forward = -1
                     elif event.key == pygame.K_a:
                         print("Moving left")
-                        left = -30
+                        left = -1
                     elif event.key == pygame.K_d:
                         print("Moving right")
-                        left = 30
+                        left = 1
                     elif event.key == pygame.K_LSHIFT:
                         print("Moving up")
-                        up = 30
+                        up = 1
                     elif event.key == pygame.K_LCTRL:
                         print("Moving down")
-                        up = -30
+                        up = -1
                     elif event.key == pygame.K_q:
                         print("Rotating counterclockwise")
-                        yaw = -60
+                        yaw = -1
                     elif event.key == pygame.K_e:
                         print("Rotating clockwise")
-                        yaw = 60
+                        yaw = 1
                     elif event.key == pygame.K_t and not drone.is_flying:
                         battery_level = drone.get_battery()
                         print(f"Battery level: {battery_level}%")
@@ -198,15 +234,16 @@ def main():
                         do_landing(drone)
                         rc_control_active = False  # Deactivate rc_control
                     elif event.key == pygame.K_r:
-                        if not image_processing_event.is_set():
-                            image_processing_event.set()
-                            print("Start recording")
-                            new_thread_image_processing = start_thread_image_processing(
-                                drone, image_stitcher, image_processing_event, exit_event)
-                            thread_image_processing_list.append(new_thread_image_processing)
+                        if not recording_event.is_set():
+                            print(f"Start recording {recording_id}")
+                            recording_event.set()
+                            #new_thread_image_processing = start_thread_image_processing(
+                            #    drone, image_output_dir, recording_id, image_processing_event, exit_event)
+                            #thread_image_processing_list.append(new_thread_image_processing)
                         else:
-                            print("End recording")
-                            image_processing_event.clear()
+                            print(f"End recording {recording_id}")
+                            recording_event.clear()
+                            recording_id += 1
                     elif event.key == pygame.K_ESCAPE:
                         print("Exiting program.")
                         rc_control_active = False
@@ -225,7 +262,7 @@ def main():
                         yaw = 0
 
             # Send real-time control commands if active
-            current_command = (left, forward, up, yaw)
+            current_command = (left * movement_speed, forward * movement_speed, up * movement_speed, yaw * rotation_speed)
             if rc_control_active and current_command != last_command:
                 drone.send_rc_control(*current_command)
                 last_command = current_command
@@ -234,12 +271,21 @@ def main():
             if not frame_queue.empty():
                 frame = frame_queue.get()
                 frame = cv2.flip(frame, 1)
-                frame_rgb = frame # cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_surface = pygame.surfarray.make_surface(frame_rgb)
+                frame_surface = pygame.surfarray.make_surface(frame)
                 frame_surface = pygame.transform.rotate(frame_surface, -90)
                 frame_surface = pygame.transform.scale(frame_surface, screen.get_size())
                 screen.blit(frame_surface, (0, 0))
                 pygame.display.update()
+
+                if recording_event.is_set():
+                    current_time = time.time()
+                    if current_time - last_saved_time >= 0.5:
+                        frame_output = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        image_path = os.path.join(image_output_dir, f"r{recording_id}_frame_{timestamp}.png")
+                        cv2.imwrite(image_path, frame_output)
+                        print(f"Saved: {image_path}")
+                        last_saved_time = current_time
 
             # Break the loop if exit event is set
             if exit_event.is_set():
