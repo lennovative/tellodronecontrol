@@ -109,7 +109,7 @@ def main():
 
     # Start drone control
     print("Tello Drone Control")
-    print("Use W, A, S, D for movement; R/F to move up/down; Q/E to rotate; T to takeoff; L to land; ESC to quit.")
+    print("Use W, A, S, D for movement; Shift/Ctrl to move up/down; Q/E to rotate; T to takeoff; L to land; R to record; ESC to quit.")
     print("All systems online.")
     try:
         # Main control loop
