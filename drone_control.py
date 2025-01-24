@@ -6,8 +6,8 @@ import pygame
 import matplotlib.pyplot as plt
 from djitellopy import Tello
 from IPython.display import clear_output, display
-from stitching import Stitcher
 from queue import Queue
+from postprocessing import load_and_stitch
 
 
 # Initialize pygame
@@ -16,8 +16,24 @@ screen = pygame.display.set_mode((960, 720))
 pygame.display.set_caption('Tello Drone')
 
 
+def get_current_output_folder_id(base_folder):
+    """Returns the current output folder number (the recording ID)."""
+    existing_subfolders = [f for f in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, f))]
+    numbers = [int(name) for name in existing_subfolders if name.isdigit()]
+    return max(numbers, default=-1)
+
+
+def add_output_folder(base_folder):
+    """Creates new folder for output recordings."""
+    current_folder_id = get_current_output_folder_id(base_folder)
+    new_folder_id = current_folder_id + 1
+    new_folder_path = os.path.join(base_folder, str(new_folder_id))
+    os.makedirs(new_folder_path)
+    return new_folder_path
+
+
 def process_video(drone, frame_queue, exit_event):
-    """Threaded function to capture the video frame from the Tello drone."""
+    """Threaded function to get the video frame from the Tello drone."""
     while not exit_event.is_set():
         frame = drone.get_frame_read().frame
         if frame is not None:
@@ -27,7 +43,7 @@ def process_video(drone, frame_queue, exit_event):
 
 
 def custom_rotate_clockwise(drone, rotation_speed, angle, error_correction=2):
-    """Clockwise rotation with custom speed setting. Error correction can be used to get closer to the given angle."""
+    """Clockwise rotation with custom speed setting. Error correction is needed to get close to the given angle."""
     duration = (angle / rotation_speed) * error_correction
     drone.send_rc_control(0, 0, 0, rotation_speed)
     time.sleep(duration)
@@ -96,7 +112,7 @@ def do_landing(drone, command_event):
 
 
 def prepare_exit(drone, command_event, recording_event, exit_event):
-    """Prepare for exiting the program."""
+    """Perform exit procedure."""
     recording_event.clear()
     if exit_event.is_set():
         return
@@ -111,13 +127,29 @@ def prepare_exit(drone, command_event, recording_event, exit_event):
             exit_event.set()
 
 
-def main():
+def ask_user(question):
+    """Asks the user a yes or now question."""
+    while True:
+        answer = input(f"{question} [Y/n]: ").strip().lower()
+        if answer in ["yes", "y", ""]:
+            return True
+        elif answer in ["no", "n"]:
+            return False
+        else:
+            print("Invalid input.")
+
+
+def perform_image_stitching(input_images_dir):
+    """Stitch the images located in the given directory and save the results in a subfolder."""
+    output_dir = os.path.join(input_images_dir, "stitching_results")
+    success = load_and_stitch(input_images_dir, output_dir)
+    return success
+
+
+def main(image_output_base_dir=os.path.join(".", "output_images")):
     # Initialize the Tello drone
     drone = Tello()
     drone.connect()
-
-    # Initialize image stitching tool
-    image_output_dir = "./output_images"
 
     # Set events
     command_event = threading.Event()
@@ -134,9 +166,6 @@ def main():
     thread_video_stream = threading.Thread(target=process_video, args=(drone, frame_queue, exit_event))
     thread_video_stream.start()
 
-    # Init processing thread list
-    #thread_image_processing_list = []
-
     # Movement variables
     movement_speed = 30
     rotation_speed = 30
@@ -149,8 +178,8 @@ def main():
     # Timer
     clock = pygame.time.Clock()
 
-    # Recording variables
-    recording_id = 0
+    # Recording
+    initial_recording_id = get_current_output_folder_id(image_output_base_dir)
     last_saved_time = 0
 
     # Exit marker
@@ -159,6 +188,7 @@ def main():
     # Start drone control
     print("Tello Drone Control")
     print("Use W, A, S, D for movement; Shift/Ctrl to move up/down; Q/E to rotate; T to takeoff; L to land; R to record; ESC to quit.")
+    print("Press 1 to perform a 360 degree panorama shot.")
     print("All systems online.")
     print(f"Battery level: {drone.get_battery()}%")
     try:
@@ -223,6 +253,7 @@ def main():
                     elif event.key == pygame.K_r:
                         if not recording_event.is_set():
                             print(f"Start recording")
+                            add_output_folder(image_output_base_dir)
                             recording_event.set()
                         else:
                             print(f"End recording")
@@ -230,6 +261,7 @@ def main():
                     elif event.key == pygame.K_1:
                         print("Initiate panorama recording...")
                         commands_list = [
+                            (add_output_folder, image_output_base_dir),
                             (set_recording_event, recording_event),
                             *((custom_rotate_clockwise, drone, rotation_speed, 90),)*4,
                             (set_recording_event, recording_event, False)]
@@ -277,12 +309,11 @@ def main():
                 if recording_event.is_set():
                     current_time = time.time()
                     time_diff = current_time - last_saved_time
-                    if time_diff >= 2:
-                        recording_id += 1
-                    if time_diff >= 0.5:
+                    if time_diff >= 1:
                         frame_output = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        timestamp = time.strftime("%Y%m%d_%H%M%S")
-                        image_path = os.path.join(image_output_dir, f"frame_{timestamp}.png")
+                        timestamp = str(int(time.time()*1000.0))
+                        current_folder_id = get_current_output_folder_id(image_output_base_dir)
+                        image_path = os.path.join(image_output_base_dir, str(current_folder_id), f"frame_{timestamp}.png")
                         cv2.imwrite(image_path, frame_output)
                         print(f"Saved: {image_path}")
                         last_saved_time = current_time
@@ -298,6 +329,9 @@ def main():
         if not exit_event.is_set():
             exit_event.set()
 
+        # Close camera window
+        pygame.quit()
+
         # Wait for the drone
         print("Waiting for drone to finish...")
         while command_event.is_set():
@@ -311,11 +345,31 @@ def main():
         thread_video_stream.join(timeout=5)
 
         # Turn off stream
-        drone.streamoff()
+        try:
+            drone.streamoff()
+        except Exception as e:
+            print(e)
+
 
         # End connection
         drone.end()
         print("All systems offline.")
+
+        # Postprocessing
+        current_recording_id = get_current_output_folder_id(image_output_base_dir)
+        if initial_recording_id != current_recording_id:
+            do_stitching = ask_user("Start stitching process now?")
+            if not do_stitching:
+                return
+            for i in range(initial_recording_id, current_recording_id):
+                recording_id = i+1
+                print(f"Working on recording {recording_id}")
+                input_images_dir = os.path.join(image_output_base_dir, str(recording_id))
+                success = perform_image_stitching(input_images_dir)
+                if success:
+                    print("Stitching process complete.")
+                else:
+                    print("Stitching process failed.")
 
 
 if __name__ == "__main__":
