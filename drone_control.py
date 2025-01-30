@@ -64,7 +64,7 @@ def set_exit_event(exit_event):
 
 
 def execute_commands_in_thread(commands_list, command_event, exit_event=None):
-    """Executes a list of drone command in a separate thread."""
+    """Executes list of drone commands in separate thread."""
     command_event.set()
     def target():
         try:
